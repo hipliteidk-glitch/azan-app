@@ -22,6 +22,12 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
+    - name: Ensure gradle wrapper jar exists
+      run: |
+        if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+          curl -L -o gradle/wrapper/gradle-wrapper.jar https://repo1.maven.org/maven2/org/gradle/gradle-wrapper/8.1.0/gradle-wrapper-8.1.0.jar
+        fi
+
     - name: Build APK
       run: ./gradlew assembleDebug
 

@@ -5,10 +5,19 @@
     android:orientation="vertical"
     android:padding="16dp"
     android:gravity="center">
+
     <TextView
         android:id="@+id/textView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Loading..."
-        android:textSize="20sp" />
+        android:textSize="20sp"
+        android:layout_marginBottom="24dp" />
+
+    <Button
+        android:id="@+id/testButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Test Notification" />
+
 </LinearLayout>

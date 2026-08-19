@@ -79,8 +79,64 @@ class MainActivity : AppCompatActivity() {
             }
 
             webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    super.onPageStarted(view, url, favicon)
+                    // Inject geolocation override before page loads
+                    view?.evaluateJavascript(
+                        """
+                        (function() {
+                            // Override geolocation to always return Mecca
+                            if (navigator.geolocation) {
+                                var originalGetCurrentPosition = navigator.geolocation.getCurrentPosition;
+                                navigator.geolocation.getCurrentPosition = function(success, error, options) {
+                                    // Mecca coordinates
+                                    var position = {
+                                        coords: {
+                                            latitude: 21.4225,
+                                            longitude: 39.8262,
+                                            accuracy: 10,
+                                            altitude: null,
+                                            altitudeAccuracy: null,
+                                            heading: null,
+                                            speed: null
+                                        },
+                                        timestamp: Date.now()
+                                    };
+                                    if (typeof success === 'function') {
+                                        success(position);
+                                    }
+                                };
+                                // Also override watchPosition
+                                navigator.geolocation.watchPosition = function(success, error, options) {
+                                    var position = {
+                                        coords: {
+                                            latitude: 21.4225,
+                                            longitude: 39.8262,
+                                            accuracy: 10,
+                                            altitude: null,
+                                            altitudeAccuracy: null,
+                                            heading: null,
+                                            speed: null
+                                        },
+                                        timestamp: Date.now()
+                                    };
+                                    if (typeof success === 'function') {
+                                        success(position);
+                                    }
+                                    // Return a dummy watch ID
+                                    return 1;
+                                };
+                                console.log('Geolocation overridden to Mecca');
+                            }
+                        })();
+                        """.trimIndent(),
+                        null
+                    )
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    // Also inject fetch interceptor for debugging
                     view?.evaluateJavascript(
                         """
                         (function() {
@@ -104,15 +160,13 @@ class MainActivity : AppCompatActivity() {
 
             webChromeClient = object : WebChromeClient() {
                 override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
-                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                        callback?.invoke(origin, true, false)
-                    } else {
-                        callback?.invoke(origin, false, false)
-                    }
+                    // Always grant geolocation since we override it
+                    callback?.invoke(origin, true, false)
                 }
 
                 override fun onPermissionRequest(request: PermissionRequest?) {
-                    request?.deny()
+                    // Grant all permissions to simplify
+                    request?.grant(request.resources)
                 }
 
                 override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage): Boolean {
@@ -219,7 +273,6 @@ class MainActivity : AppCompatActivity() {
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .build()
-        // Use raw GitHub URL for version.json (always accessible)
         val request = Request.Builder()
             .url("https://raw.githubusercontent.com/hipliteidk-glitch/azan-app/main/version.json")
             .build()

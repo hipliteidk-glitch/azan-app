@@ -4,9 +4,13 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
@@ -14,19 +18,30 @@ import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
+    private lateinit var updateButton: Button
     private val CHANNEL_ID = "azan_web_channel"
     private val NOTIFICATION_ID = 2001
     private val LOCATION_PERMISSION_REQUEST = 10
     private val NOTIFICATION_PERMISSION_REQUEST = 11
+    private var updateCheckInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,16 +67,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView = findViewById(R.id.webView)
+        updateButton = findViewById(R.id.updateButton)
+
         webView.apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.allowFileAccess = true
             settings.allowContentAccess = true
             settings.setGeolocationEnabled(true)
-            // Allow cross-origin requests from file:// URLs
             settings.setAllowUniversalAccessFromFileURLs(true)
             settings.setAllowFileAccessFromFileURLs(true)
-            // Allow mixed content (if any)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             }
@@ -69,16 +84,13 @@ class MainActivity : AppCompatActivity() {
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    // Inject a small script to catch fetch errors and log them to console
                     view?.evaluateJavascript(
                         """
                         (function() {
-                            // Override fetch to log errors
                             var originalFetch = window.fetch;
                             window.fetch = function(url, options) {
                                 return originalFetch(url, options).catch(function(e) {
                                     console.error('Fetch error:', e);
-                                    // Also show a toast via AndroidBridge if available
                                     if (typeof AndroidBridge !== 'undefined') {
                                         AndroidBridge.showToast('Network error: ' + e.message);
                                     }
@@ -156,6 +168,14 @@ class MainActivity : AppCompatActivity() {
             },
             "AndroidBridge"
         )
+
+        // Update button logic
+        updateButton.setOnClickListener {
+            checkForUpdate()
+        }
+
+        // Optionally check for update on launch (silent)
+        checkForUpdateSilently()
     }
 
     private fun createNotificationChannel() {
@@ -188,5 +208,224 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Notification permission denied. You will not receive alerts.", Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    // Auto-update functionality
+    private fun checkForUpdate() {
+        if (updateCheckInProgress) {
+            Toast.makeText(this, "Check already in progress", Toast.LENGTH_SHORT).show()
+            return
+        }
+        updateCheckInProgress = true
+        updateButton.text = "Checking..."
+        updateButton.isEnabled = false
+        Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT).show()
+
+        val client = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build()
+        val request = Request.Builder()
+            .url("https://raw.githubusercontent.com/hipliteidk-glitch/azan-app/main/version.json")
+            .build()
+
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: IOException) {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Update check failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    updateCheckInProgress = false
+                    updateButton.text = "Check for Updates"
+                    updateButton.isEnabled = true
+                }
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                response.use {
+                    if (!it.isSuccessful) {
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, "Update check error: ${it.code}", Toast.LENGTH_SHORT).show()
+                            updateCheckInProgress = false
+                            updateButton.text = "Check for Updates"
+                            updateButton.isEnabled = true
+                        }
+                        return
+                    }
+                    val body = it.body?.string()
+                    if (body == null) {
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, "Empty version response", Toast.LENGTH_SHORT).show()
+                            updateCheckInProgress = false
+                            updateButton.text = "Check for Updates"
+                            updateButton.isEnabled = true
+                        }
+                        return
+                    }
+                    try {
+                        val json = JSONObject(body)
+                        val remoteVersion = json.getInt("version_code")
+                        val downloadUrl = json.getString("download_url")
+                        val currentVersion = packageManager.getPackageInfo(packageName, 0).versionCode
+
+                        runOnUiThread {
+                            if (remoteVersion > currentVersion) {
+                                Toast.makeText(this@MainActivity, "Update available (v$remoteVersion). Downloading...", Toast.LENGTH_LONG).show()
+                                updateButton.text = "Downloading..."
+                                downloadAndInstallUpdate(downloadUrl)
+                            } else {
+                                Toast.makeText(this@MainActivity, "You have the latest version ($currentVersion).", Toast.LENGTH_SHORT).show()
+                                updateCheckInProgress = false
+                                updateButton.text = "Check for Updates"
+                                updateButton.isEnabled = true
+                            }
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, "Failed to parse version: ${e.message}", Toast.LENGTH_SHORT).show()
+                            updateCheckInProgress = false
+                            updateButton.text = "Check for Updates"
+                            updateButton.isEnabled = true
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    private fun checkForUpdateSilently() {
+        if (updateCheckInProgress) return
+        updateCheckInProgress = true
+
+        val client = OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+        val request = Request.Builder()
+            .url("https://raw.githubusercontent.com/hipliteidk-glitch/azan-app/main/version.json")
+            .build()
+
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: IOException) {
+                updateCheckInProgress = false
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                response.use {
+                    if (!it.isSuccessful) {
+                        updateCheckInProgress = false
+                        return
+                    }
+                    val body = it.body?.string()
+                    if (body == null) {
+                        updateCheckInProgress = false
+                        return
+                    }
+                    try {
+                        val json = JSONObject(body)
+                        val remoteVersion = json.getInt("version_code")
+                        val currentVersion = packageManager.getPackageInfo(packageName, 0).versionCode
+
+                        if (remoteVersion > currentVersion) {
+                            runOnUiThread {
+                                Toast.makeText(this@MainActivity, "Update available! Tap 'Check for Updates' to install.", Toast.LENGTH_LONG).show()
+                                updateButton.text = "Update Available!"
+                                updateButton.isEnabled = true
+                            }
+                        }
+                        updateCheckInProgress = false
+                    } catch (e: Exception) {
+                        updateCheckInProgress = false
+                    }
+                }
+            }
+        })
+    }
+
+    private fun downloadAndInstallUpdate(url: String) {
+        // Show notification about download progress (simplified)
+        val client = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+        val request = Request.Builder().url(url).build()
+
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: IOException) {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Download failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    updateCheckInProgress = false
+                    updateButton.text = "Check for Updates"
+                    updateButton.isEnabled = true
+                }
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                response.use {
+                    if (!it.isSuccessful) {
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, "Download error: ${it.code}", Toast.LENGTH_SHORT).show()
+                            updateCheckInProgress = false
+                            updateButton.text = "Check for Updates"
+                            updateButton.isEnabled = true
+                        }
+                        return
+                    }
+                    val body = it.body
+                    if (body == null) {
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, "Empty response body", Toast.LENGTH_SHORT).show()
+                            updateCheckInProgress = false
+                            updateButton.text = "Check for Updates"
+                            updateButton.isEnabled = true
+                        }
+                        return
+                    }
+                    try {
+                        // Save to external files directory
+                        val apkFile = File(getExternalFilesDir(null), "update.apk")
+                        if (apkFile.exists()) apkFile.delete()
+                        val fos = FileOutputStream(apkFile)
+                        fos.write(body.bytes())
+                        fos.close()
+
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, "Download complete. Installing...", Toast.LENGTH_SHORT).show()
+                            installApk(apkFile)
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, "Install failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                            updateCheckInProgress = false
+                            updateButton.text = "Check for Updates"
+                            updateButton.isEnabled = true
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    private fun installApk(apkFile: File) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", apkFile)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(intent)
+        } else {
+            val uri = Uri.fromFile(apkFile)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        }
+        // Reset update check state after installation attempt (not immediately, but after starting intent)
+        // We'll set a delayed reset in case the user cancels
+        Handler(Looper.getMainLooper()).postDelayed({
+            updateCheckInProgress = false
+            updateButton.text = "Check for Updates"
+            updateButton.isEnabled = true
+        }, 5000)
     }
 }

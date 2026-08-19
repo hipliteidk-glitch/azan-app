@@ -210,7 +210,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Auto-update functionality
+    // Auto-update functionality using release version.json
     private fun checkForUpdate() {
         if (updateCheckInProgress) {
             Toast.makeText(this, "Check already in progress", Toast.LENGTH_SHORT).show()
@@ -226,7 +226,7 @@ class MainActivity : AppCompatActivity() {
             .readTimeout(10, TimeUnit.SECONDS)
             .build()
         val request = Request.Builder()
-            .url("https://raw.githubusercontent.com/hipliteidk-glitch/azan-app/main/version.json")
+            .url("https://github.com/hipliteidk-glitch/azan-app/releases/download/latest/version.json")
             .build()
 
         client.newCall(request).enqueue(object : okhttp3.Callback {
@@ -300,7 +300,7 @@ class MainActivity : AppCompatActivity() {
             .readTimeout(5, TimeUnit.SECONDS)
             .build()
         val request = Request.Builder()
-            .url("https://raw.githubusercontent.com/hipliteidk-glitch/azan-app/main/version.json")
+            .url("https://github.com/hipliteidk-glitch/azan-app/releases/download/latest/version.json")
             .build()
 
         client.newCall(request).enqueue(object : okhttp3.Callback {

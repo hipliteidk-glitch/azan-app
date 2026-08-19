@@ -28,7 +28,7 @@ class MainActivity : AppCompatActivity() {
 
         val textView = findViewById<TextView>(R.id.textView)
         val retrofit = Retrofit.Builder()
-            .baseUrl("http://api.aladhan.com/")
+            .baseUrl("https://api.aladhan.com/")
             .addConverterFactory(GsonConverterFactory.create())
             .build()
         val service = retrofit.create(ApiService::class.java)

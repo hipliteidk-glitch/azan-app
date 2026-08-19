@@ -49,19 +49,16 @@ class MainActivity : AppCompatActivity() {
 
         createNotificationChannel()
 
-        // Enable WebView debugging for Chrome remote inspection
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             WebView.setWebContentsDebuggingEnabled(true)
         }
 
-        // Request notification permission for Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION_REQUEST)
             }
         }
 
-        // Request location permission if not granted
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), LOCATION_PERMISSION_REQUEST)
         }
@@ -169,12 +166,10 @@ class MainActivity : AppCompatActivity() {
             "AndroidBridge"
         )
 
-        // Update button logic
         updateButton.setOnClickListener {
             checkForUpdate()
         }
 
-        // Optionally check for update on launch (silent)
         checkForUpdateSilently()
     }
 
@@ -210,7 +205,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Auto-update functionality using release version.json
     private fun checkForUpdate() {
         if (updateCheckInProgress) {
             Toast.makeText(this, "Check already in progress", Toast.LENGTH_SHORT).show()
@@ -225,8 +219,9 @@ class MainActivity : AppCompatActivity() {
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .build()
+        // Use raw GitHub URL for version.json (always accessible)
         val request = Request.Builder()
-            .url("https://github.com/hipliteidk-glitch/azan-app/releases/download/latest/version.json")
+            .url("https://raw.githubusercontent.com/hipliteidk-glitch/azan-app/main/version.json")
             .build()
 
         client.newCall(request).enqueue(object : okhttp3.Callback {
@@ -300,7 +295,7 @@ class MainActivity : AppCompatActivity() {
             .readTimeout(5, TimeUnit.SECONDS)
             .build()
         val request = Request.Builder()
-            .url("https://github.com/hipliteidk-glitch/azan-app/releases/download/latest/version.json")
+            .url("https://raw.githubusercontent.com/hipliteidk-glitch/azan-app/main/version.json")
             .build()
 
         client.newCall(request).enqueue(object : okhttp3.Callback {
@@ -341,7 +336,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun downloadAndInstallUpdate(url: String) {
-        // Show notification about download progress (simplified)
         val client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
@@ -380,7 +374,6 @@ class MainActivity : AppCompatActivity() {
                         return
                     }
                     try {
-                        // Save to external files directory
                         val apkFile = File(getExternalFilesDir(null), "update.apk")
                         if (apkFile.exists()) apkFile.delete()
                         val fos = FileOutputStream(apkFile)
@@ -420,8 +413,6 @@ class MainActivity : AppCompatActivity() {
             }
             startActivity(intent)
         }
-        // Reset update check state after installation attempt (not immediately, but after starting intent)
-        // We'll set a delayed reset in case the user cancels
         Handler(Looper.getMainLooper()).postDelayed({
             updateCheckInProgress = false
             updateButton.text = "Check for Updates"

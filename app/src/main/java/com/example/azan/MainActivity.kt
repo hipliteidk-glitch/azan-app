@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -51,14 +52,19 @@ class MainActivity : AppCompatActivity() {
 
         testButton.setOnClickListener {
             sendNotification("Test Notification", "Azan app test notification!")
+            Toast.makeText(this, "Test notification sent", Toast.LENGTH_SHORT).show()
         }
+
+        textView.text = "Fetching prayer times for Mecca (Umm Al-Qura)..."
+        Toast.makeText(this, "Fetching times...", Toast.LENGTH_SHORT).show()
 
         val retrofit = Retrofit.Builder()
             .baseUrl("https://api.aladhan.com/")
             .addConverterFactory(GsonConverterFactory.create())
             .build()
         val service = retrofit.create(ApiService::class.java)
-        val call = service.getTimings("Mecca", "Saudi Arabia", 2)
+        // Use Umm Al-Qura method (4) for Mecca
+        val call = service.getTimings("Makkah", "Saudi Arabia", 4)
         call.enqueue(object : Callback<ApiResponse> {
             override fun onResponse(call: Call<ApiResponse>, response: Response<ApiResponse>) {
                 if (response.isSuccessful) {
@@ -75,6 +81,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onFailure(call: Call<ApiResponse>, t: Throwable) {
                 textView.text = "Failed: ${t.message}"
+                Toast.makeText(this@MainActivity, "Failed to fetch times: ${t.message}", Toast.LENGTH_LONG).show()
             }
         })
     }

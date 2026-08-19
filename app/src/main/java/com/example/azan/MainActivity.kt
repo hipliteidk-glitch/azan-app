@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -85,49 +86,38 @@ class MainActivity : AppCompatActivity() {
                     view?.evaluateJavascript(
                         """
                         (function() {
-                            // Override geolocation to always return Mecca
-                            if (navigator.geolocation) {
-                                var originalGetCurrentPosition = navigator.geolocation.getCurrentPosition;
-                                navigator.geolocation.getCurrentPosition = function(success, error, options) {
-                                    // Mecca coordinates
-                                    var position = {
-                                        coords: {
-                                            latitude: 21.4225,
-                                            longitude: 39.8262,
-                                            accuracy: 10,
-                                            altitude: null,
-                                            altitudeAccuracy: null,
-                                            heading: null,
-                                            speed: null
-                                        },
-                                        timestamp: Date.now()
-                                    };
-                                    if (typeof success === 'function') {
-                                        success(position);
-                                    }
-                                };
-                                // Also override watchPosition
-                                navigator.geolocation.watchPosition = function(success, error, options) {
-                                    var position = {
-                                        coords: {
-                                            latitude: 21.4225,
-                                            longitude: 39.8262,
-                                            accuracy: 10,
-                                            altitude: null,
-                                            altitudeAccuracy: null,
-                                            heading: null,
-                                            speed: null
-                                        },
-                                        timestamp: Date.now()
-                                    };
-                                    if (typeof success === 'function') {
-                                        success(position);
-                                    }
-                                    // Return a dummy watch ID
-                                    return 1;
-                                };
-                                console.log('Geolocation overridden to Mecca');
-                            }
+                            if (!navigator.geolocation || navigator.geolocation.__azanWrapped) return;
+                            navigator.geolocation.__azanWrapped = true;
+                            var originalGetCurrentPosition = navigator.geolocation.getCurrentPosition.bind(navigator.geolocation);
+                            var mecca = {
+                                coords: {
+                                    latitude: 21.4225,
+                                    longitude: 39.8262,
+                                    accuracy: 5000,
+                                    altitude: null,
+                                    altitudeAccuracy: null,
+                                    heading: null,
+                                    speed: null
+                                },
+                                timestamp: Date.now()
+                            };
+                            navigator.geolocation.getCurrentPosition = function(success, error, options) {
+                                var opts = options || { timeout: 8000, maximumAge: 60000 };
+                                try {
+                                    originalGetCurrentPosition(function(pos) {
+                                        if (typeof success === 'function') success(pos);
+                                    }, function() {
+                                        if (typeof success === 'function') success(mecca);
+                                    }, opts);
+                                } catch (e) {
+                                    if (typeof success === 'function') success(mecca);
+                                }
+                            };
+                            navigator.geolocation.watchPosition = function(success, error, options) {
+                                navigator.geolocation.getCurrentPosition(success, error, options);
+                                return 1;
+                            };
+                            console.log('Geolocation: real GPS with Mecca fallback');
                         })();
                         """.trimIndent(),
                         null
@@ -451,11 +441,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun installApk(apkFile: File) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            Toast.makeText(this, "Allow installing updates, then tap Check for Updates again.", Toast.LENGTH_LONG).show()
+            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            updateCheckInProgress = false
+            updateButton.text = "Check for Updates"
+            updateButton.isEnabled = true
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", apkFile)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             startActivity(intent)
         } else {

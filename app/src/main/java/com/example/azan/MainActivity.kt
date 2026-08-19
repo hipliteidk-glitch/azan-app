@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.provider.Settings
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -38,6 +37,7 @@ import java.util.concurrent.TimeUnit
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var updateButton: Button
+    private lateinit var testButton: Button
     private val CHANNEL_ID = "azan_web_channel"
     private val NOTIFICATION_ID = 2001
     private val LOCATION_PERMISSION_REQUEST = 10
@@ -66,6 +66,7 @@ class MainActivity : AppCompatActivity() {
 
         webView = findViewById(R.id.webView)
         updateButton = findViewById(R.id.updateButton)
+        testButton = findViewById(R.id.testButton)
 
         webView.apply {
             settings.javaScriptEnabled = true
@@ -82,42 +83,48 @@ class MainActivity : AppCompatActivity() {
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     super.onPageStarted(view, url, favicon)
-                    // Inject geolocation override before page loads
                     view?.evaluateJavascript(
                         """
                         (function() {
-                            if (!navigator.geolocation || navigator.geolocation.__azanWrapped) return;
-                            navigator.geolocation.__azanWrapped = true;
-                            var originalGetCurrentPosition = navigator.geolocation.getCurrentPosition.bind(navigator.geolocation);
-                            var mecca = {
-                                coords: {
-                                    latitude: 21.4225,
-                                    longitude: 39.8262,
-                                    accuracy: 5000,
-                                    altitude: null,
-                                    altitudeAccuracy: null,
-                                    heading: null,
-                                    speed: null
-                                },
-                                timestamp: Date.now()
-                            };
-                            navigator.geolocation.getCurrentPosition = function(success, error, options) {
-                                var opts = options || { timeout: 8000, maximumAge: 60000 };
-                                try {
-                                    originalGetCurrentPosition(function(pos) {
-                                        if (typeof success === 'function') success(pos);
-                                    }, function() {
-                                        if (typeof success === 'function') success(mecca);
-                                    }, opts);
-                                } catch (e) {
-                                    if (typeof success === 'function') success(mecca);
-                                }
-                            };
-                            navigator.geolocation.watchPosition = function(success, error, options) {
-                                navigator.geolocation.getCurrentPosition(success, error, options);
-                                return 1;
-                            };
-                            console.log('Geolocation: real GPS with Mecca fallback');
+                            if (navigator.geolocation) {
+                                var originalGetCurrentPosition = navigator.geolocation.getCurrentPosition;
+                                navigator.geolocation.getCurrentPosition = function(success, error, options) {
+                                    var position = {
+                                        coords: {
+                                            latitude: 21.4225,
+                                            longitude: 39.8262,
+                                            accuracy: 10,
+                                            altitude: null,
+                                            altitudeAccuracy: null,
+                                            heading: null,
+                                            speed: null
+                                        },
+                                        timestamp: Date.now()
+                                    };
+                                    if (typeof success === 'function') {
+                                        success(position);
+                                    }
+                                };
+                                navigator.geolocation.watchPosition = function(success, error, options) {
+                                    var position = {
+                                        coords: {
+                                            latitude: 21.4225,
+                                            longitude: 39.8262,
+                                            accuracy: 10,
+                                            altitude: null,
+                                            altitudeAccuracy: null,
+                                            heading: null,
+                                            speed: null
+                                        },
+                                        timestamp: Date.now()
+                                    };
+                                    if (typeof success === 'function') {
+                                        success(position);
+                                    }
+                                    return 1;
+                                };
+                                console.log('Geolocation overridden to Mecca');
+                            }
                         })();
                         """.trimIndent(),
                         null
@@ -126,7 +133,6 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    // Also inject fetch interceptor for debugging
                     view?.evaluateJavascript(
                         """
                         (function() {
@@ -150,12 +156,10 @@ class MainActivity : AppCompatActivity() {
 
             webChromeClient = object : WebChromeClient() {
                 override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
-                    // Always grant geolocation since we override it
                     callback?.invoke(origin, true, false)
                 }
 
                 override fun onPermissionRequest(request: PermissionRequest?) {
-                    // Grant all permissions to simplify
                     request?.grant(request.resources)
                 }
 
@@ -172,21 +176,7 @@ class MainActivity : AppCompatActivity() {
             object {
                 @JavascriptInterface
                 fun showNotification(title: String, body: String) {
-                    if (ActivityCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                        val builder = NotificationCompat.Builder(this@MainActivity, CHANNEL_ID)
-                            .setSmallIcon(android.R.drawable.ic_dialog_info)
-                            .setContentTitle(title)
-                            .setContentText(body)
-                            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                            .setAutoCancel(true)
-                        NotificationManagerCompat.from(this@MainActivity).notify(NOTIFICATION_ID, builder.build())
-                    } else {
-                        runOnUiThread {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION_REQUEST)
-                            }
-                        }
-                    }
+                    sendNotification(title, body)
                 }
 
                 @JavascriptInterface
@@ -210,6 +200,11 @@ class MainActivity : AppCompatActivity() {
             "AndroidBridge"
         )
 
+        testButton.setOnClickListener {
+            sendNotification("Test Notification", "Azan app test notification!")
+            Toast.makeText(this, "Test notification sent", Toast.LENGTH_SHORT).show()
+        }
+
         updateButton.setOnClickListener {
             checkForUpdate()
         }
@@ -227,6 +222,24 @@ class MainActivity : AppCompatActivity() {
             }
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun sendNotification(title: String, body: String) {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true)
+            NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, builder.build())
+        } else {
+            runOnUiThread {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION_REQUEST)
+                }
+            }
         }
     }
 
@@ -441,20 +454,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun installApk(apkFile: File) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(this, "Allow installing updates, then tap Check for Updates again.", Toast.LENGTH_LONG).show()
-            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
-            updateCheckInProgress = false
-            updateButton.text = "Check for Updates"
-            updateButton.isEnabled = true
-            return
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", apkFile)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             startActivity(intent)
         } else {

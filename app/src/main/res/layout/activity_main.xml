@@ -7,7 +7,17 @@
         android:id="@+id/webView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_above="@+id/updateButton" />
+        android:layout_above="@+id/testButton" />
+
+    <Button
+        android:id="@+id/testButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_above="@+id/updateButton"
+        android:text="Test Notification"
+        android:background="#333333"
+        android:textColor="@android:color/white"
+        android:padding="12dp" />
 
     <Button
         android:id="@+id/updateButton"

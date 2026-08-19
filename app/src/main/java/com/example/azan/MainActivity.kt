@@ -86,49 +86,38 @@ class MainActivity : AppCompatActivity() {
                     view?.evaluateJavascript(
                         """
                         (function() {
-                            // Override geolocation to always return Mecca
-                            if (navigator.geolocation) {
-                                var originalGetCurrentPosition = navigator.geolocation.getCurrentPosition;
-                                navigator.geolocation.getCurrentPosition = function(success, error, options) {
-                                    // Mecca coordinates
-                                    var position = {
-                                        coords: {
-                                            latitude: 21.4225,
-                                            longitude: 39.8262,
-                                            accuracy: 10,
-                                            altitude: null,
-                                            altitudeAccuracy: null,
-                                            heading: null,
-                                            speed: null
-                                        },
-                                        timestamp: Date.now()
-                                    };
-                                    if (typeof success === 'function') {
-                                        success(position);
-                                    }
-                                };
-                                // Also override watchPosition
-                                navigator.geolocation.watchPosition = function(success, error, options) {
-                                    var position = {
-                                        coords: {
-                                            latitude: 21.4225,
-                                            longitude: 39.8262,
-                                            accuracy: 10,
-                                            altitude: null,
-                                            altitudeAccuracy: null,
-                                            heading: null,
-                                            speed: null
-                                        },
-                                        timestamp: Date.now()
-                                    };
-                                    if (typeof success === 'function') {
-                                        success(position);
-                                    }
-                                    // Return a dummy watch ID
-                                    return 1;
-                                };
-                                console.log('Geolocation overridden to Mecca');
-                            }
+                            if (!navigator.geolocation || navigator.geolocation.__azanWrapped) return;
+                            navigator.geolocation.__azanWrapped = true;
+                            var originalGetCurrentPosition = navigator.geolocation.getCurrentPosition.bind(navigator.geolocation);
+                            var mecca = {
+                                coords: {
+                                    latitude: 21.4225,
+                                    longitude: 39.8262,
+                                    accuracy: 5000,
+                                    altitude: null,
+                                    altitudeAccuracy: null,
+                                    heading: null,
+                                    speed: null
+                                },
+                                timestamp: Date.now()
+                            };
+                            navigator.geolocation.getCurrentPosition = function(success, error, options) {
+                                var opts = options || { timeout: 8000, maximumAge: 60000 };
+                                try {
+                                    originalGetCurrentPosition(function(pos) {
+                                        if (typeof success === 'function') success(pos);
+                                    }, function() {
+                                        if (typeof success === 'function') success(mecca);
+                                    }, opts);
+                                } catch (e) {
+                                    if (typeof success === 'function') success(mecca);
+                                }
+                            };
+                            navigator.geolocation.watchPosition = function(success, error, options) {
+                                navigator.geolocation.getCurrentPosition(success, error, options);
+                                return 1;
+                            };
+                            console.log('Geolocation: real GPS with Mecca fallback');
                         })();
                         """.trimIndent(),
                         null

@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -33,6 +34,11 @@ class MainActivity : AppCompatActivity() {
 
         createNotificationChannel()
 
+        // Enable WebView debugging for Chrome remote inspection
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
+
         // Request notification permission for Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -52,30 +58,34 @@ class MainActivity : AppCompatActivity() {
             settings.allowFileAccess = true
             settings.allowContentAccess = true
             settings.setGeolocationEnabled(true)
+            // Allow cross-origin requests from file:// URLs
+            settings.setAllowUniversalAccessFromFileURLs(true)
+            settings.setAllowFileAccessFromFileURLs(true)
+            // Allow mixed content (if any)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            }
 
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    // Inject a small script to catch fetch errors and log them to console
                     view?.evaluateJavascript(
                         """
                         (function() {
-                            // Override Notification constructor
-                            var originalNotification = window.Notification;
-                            window.Notification = function(title, options) {
-                                if (typeof AndroidBridge !== 'undefined') {
-                                    var body = (options && options.body) ? options.body : '';
-                                    AndroidBridge.showNotification(title, body);
-                                }
+                            // Override fetch to log errors
+                            var originalFetch = window.fetch;
+                            window.fetch = function(url, options) {
+                                return originalFetch(url, options).catch(function(e) {
+                                    console.error('Fetch error:', e);
+                                    // Also show a toast via AndroidBridge if available
+                                    if (typeof AndroidBridge !== 'undefined') {
+                                        AndroidBridge.showToast('Network error: ' + e.message);
+                                    }
+                                    throw e;
+                                });
                             };
-                            // Override requestPermission
-                            window.Notification.requestPermission = function(callback) {
-                                if (typeof AndroidBridge !== 'undefined') {
-                                    AndroidBridge.requestNotificationPermission();
-                                }
-                                if (typeof callback === 'function') callback('granted');
-                                return Promise.resolve('granted');
-                            };
-                            console.log('Azan Notify bridge injected');
+                            console.log('Azan Notify fetch interceptor installed');
                         })();
                         """.trimIndent(),
                         null
@@ -93,9 +103,12 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onPermissionRequest(request: PermissionRequest?) {
-                    // Only grant if we have the corresponding permission; for simplicity, deny all except geolocation (handled above)
-                    // We'll just deny everything here to avoid complex checks.
                     request?.deny()
+                }
+
+                override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage): Boolean {
+                    Log.d("WebView", "JS Console: ${consoleMessage.message()}")
+                    return super.onConsoleMessage(consoleMessage)
                 }
             }
 
@@ -131,6 +144,13 @@ class MainActivity : AppCompatActivity() {
                                 ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION_REQUEST)
                             }
                         }
+                    }
+                }
+
+                @JavascriptInterface
+                fun showToast(message: String) {
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
                     }
                 }
             },

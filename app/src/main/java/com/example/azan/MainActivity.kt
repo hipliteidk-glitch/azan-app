@@ -56,7 +56,6 @@ class MainActivity : AppCompatActivity() {
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    // Inject JavaScript bridge to override Notification API
                     view?.evaluateJavascript(
                         """
                         (function() {
@@ -67,15 +66,12 @@ class MainActivity : AppCompatActivity() {
                                     var body = (options && options.body) ? options.body : '';
                                     AndroidBridge.showNotification(title, body);
                                 }
-                                // Optionally call original if you want to keep browser behavior
                             };
-                            // Override requestPermission to grant automatically if we have permission
+                            // Override requestPermission
                             window.Notification.requestPermission = function(callback) {
-                                // Ask Android side for permission
                                 if (typeof AndroidBridge !== 'undefined') {
                                     AndroidBridge.requestNotificationPermission();
                                 }
-                                // For simplicity, we'll just grant
                                 if (typeof callback === 'function') callback('granted');
                                 return Promise.resolve('granted');
                             };
@@ -89,7 +85,6 @@ class MainActivity : AppCompatActivity() {
 
             webChromeClient = object : WebChromeClient() {
                 override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
-                    // Grant geolocation if we have permission
                     if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                         callback?.invoke(origin, true, false)
                     } else {
@@ -98,41 +93,19 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onPermissionRequest(request: PermissionRequest?) {
-                    // Handle geolocation and other permissions
-                    val resources = request?.resources
-                    if (resources != null) {
-                        val granted = mutableListOf<String>()
-                        for (resource in resources) {
-                            when (resource) {
-                                PermissionRequest.RESOURCE_GEOLOCATION -> {
-                                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                                        granted.add(resource)
-                                    }
-                                }
-                                else -> {
-                                    // For other permissions, deny for simplicity
-                                }
-                            }
-                        }
-                        if (granted.isNotEmpty()) {
-                            request.grant(granted.toTypedArray())
-                        } else {
-                            request.deny()
-                        }
-                    }
+                    // Only grant if we have the corresponding permission; for simplicity, deny all except geolocation (handled above)
+                    // We'll just deny everything here to avoid complex checks.
+                    request?.deny()
                 }
             }
 
-            // Load the HTML from assets
             loadUrl("file:///android_asset/azan-notify.html")
         }
 
-        // Add JavaScript interface for notification bridge
         webView.addJavascriptInterface(
             object {
                 @JavascriptInterface
                 fun showNotification(title: String, body: String) {
-                    // Show Android notification
                     if (ActivityCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
                         val builder = NotificationCompat.Builder(this@MainActivity, CHANNEL_ID)
                             .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -142,7 +115,6 @@ class MainActivity : AppCompatActivity() {
                             .setAutoCancel(true)
                         NotificationManagerCompat.from(this@MainActivity).notify(NOTIFICATION_ID, builder.build())
                     } else {
-                        // Request permission if not granted
                         runOnUiThread {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                 ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION_REQUEST)

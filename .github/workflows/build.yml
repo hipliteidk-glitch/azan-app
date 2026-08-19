@@ -55,3 +55,8 @@ jobs:
         if: success()
         run: |
           curl -H "Title: ✅ Azan APK Build Success" -H "Priority: default" -d "New Azan APK ready: https://github.com/hipliteidk-glitch/azan-app/releases/tag/latest" https://ntfy.sh/zeroscript_alerts
+
+      - name: Notify ntfy on failure
+        if: failure()
+        run: |
+          curl -H "Title: ❌ Azan APK Build Failed" -H "Priority: high" -d "Build failed. Check logs: https://github.com/hipliteidk-glitch/azan-app/actions" https://ntfy.sh/zeroscript_alerts
